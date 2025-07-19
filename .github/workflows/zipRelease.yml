@@ -31,27 +31,43 @@ jobs:
             exit 1
           fi
 
-      # 3. Generate precise changelog
+      # 3. Generate changelog (simplified version without API call)
       - name: Generate Changelog
         id: changelog
         run: |
-          # Get previous release tag
-          PREV_RELEASE=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/releases/latest | \
-            jq -r '.tag_name // empty')
+          # Get all tags sorted by version
+          git fetch --tags
+          TAGS=$(git tag --sort=-v:refname)
+          
+          # Find previous release tag (the one before current)
+          PREV_RELEASE=""
+          CURRENT_TAG="${{ github.ref_name }}"
+          found_current=false
+          
+          for tag in $TAGS; do
+            if [ "$found_current" = true ]; then
+              PREV_RELEASE=$tag
+              break
+            fi
+            if [ "$tag" = "$CURRENT_TAG" ]; then
+              found_current=true
+            fi
+          done
           
           # Generate formatted changelog
           CHANGELOG_TITLE="## 📝 Changelog ${PREV_RELEASE:-Initial Release} → ${{ github.ref_name }}"
-          CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  Contributor: %an <%ae>%n  Date: %ad%n  %b" \
-            --date=format:"%Y-%m-%d %H:%M:%S" \
-            ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
-            sed '/^  $/d' | \
-            sed 's/^  $$BUG$$/[BUG]/')
+          CHANGELOG_BODY=$(git log --pretty=format:"- %s (by %an on %ad)" \
+            --date=format:"%Y-%m-%d" \
+            ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }})
           
-          echo "CHANGELOG_TITLE=${CHANGELOG_TITLE}" >> $GITHUB_ENV
-          echo "CHANGELOG_BODY=${CHANGELOG_BODY}" >> $GITHUB_ENV
+          # Properly set environment variables
+          echo "CHANGELOG_TITLE<<EOF" >> $GITHUB_ENV
+          echo "$CHANGELOG_TITLE" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "CHANGELOG_BODY<<EOF" >> $GITHUB_ENV
+          echo "$CHANGELOG_BODY" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       # 4. Gather metadata
       - name: Gather metadata
@@ -69,8 +85,6 @@ jobs:
       # 5. Create formatted GitHub Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
           name: 🚀 Release ${{ github.ref_name }}
