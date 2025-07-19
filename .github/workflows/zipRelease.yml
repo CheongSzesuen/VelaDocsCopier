@@ -1,1 +1,88 @@
+name: Build Zip on Tag Release
 
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+    env:
+      # Remove 'v' prefix from version
+      CLEAN_VERSION: ${{ format('{0}', github.ref_name) }}
+      BUILD_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.zip
+
+    steps:
+      # 1. Checkout code with full history
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Create zip file
+      - name: Create Zip Archive
+        run: |
+          # Remove 'v' prefix from version if present
+          CLEAN_VERSION=${CLEAN_VERSION#v}
+          zip -r ${BUILD_OUTPUT} . -x .git/\* .github/\* *.zip
+          if [ ! -f "${BUILD_OUTPUT}" ]; then
+            echo "::error::Failed to create zip file"
+            exit 1
+          fi
+
+      # 3. Generate precise changelog
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          # Get previous release tag
+          PREV_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/releases/latest | \
+            jq -r '.tag_name // empty')
+          
+          # Generate formatted changelog
+          CHANGELOG_TITLE="## 📝 Changelog ${PREV_RELEASE:-Initial Release} → ${{ github.ref_name }}"
+          CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  Contributor: %an <%ae>%n  Date: %ad%n  %b" \
+            --date=format:"%Y-%m-%d %H:%M:%S" \
+            ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
+            sed '/^  $/d' | \
+            sed 's/^  $$BUG$$/[BUG]/')
+          
+          echo "CHANGELOG_TITLE=${CHANGELOG_TITLE}" >> $GITHUB_ENV
+          echo "CHANGELOG_BODY=${CHANGELOG_BODY}" >> $GITHUB_ENV
+
+      # 4. Gather metadata
+      - name: Gather metadata
+        id: meta
+        run: |
+          # Build time (UTC+8)
+          echo "time=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+          
+          # Get short commit ID
+          echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
+          
+          # Get zip file size
+          echo "file_size=$(du -h ${BUILD_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
+
+      # 5. Create formatted GitHub Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 🚀 Release ${{ github.ref_name }}
+          body: |
+            ${{ env.CHANGELOG_TITLE }}
+            ${{ env.CHANGELOG_BODY }}
+
+            ## 🔧 Build Information
+            - 🕒 Build Time: ${{ steps.meta.outputs.time }} (UTC+8)
+            - 🏷️ Tag: ${{ github.ref_name }}
+            - 🔗 Commit: [${{ steps.meta.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            - 📦 File: ${BUILD_OUTPUT} (${{ steps.meta.outputs.file_size }})
+          files: ${BUILD_OUTPUT}
+          draft: false
+          prerelease: false
