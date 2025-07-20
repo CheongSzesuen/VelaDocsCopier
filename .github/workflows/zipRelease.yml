@@ -102,7 +102,7 @@ jobs:
           echo "✓ CRX created: ${CRX_OUTPUT}"
           echo "Size: $(du -h "${CRX_OUTPUT}" | cut -f1)"
 
-      # 6. Create Release
+      # 6. Create Release 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
