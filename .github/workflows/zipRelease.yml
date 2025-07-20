@@ -1,4 +1,4 @@
-name: Build Zip on Tag Release
+name: Build and Release Extension
 
 on:
   push:
@@ -6,12 +6,14 @@ on:
       - 'v*'
 
 jobs:
-  build-zip:
+  build-release:
     runs-on: ubuntu-latest
     env:
-      # Remove 'v' prefix from version
+      # Clean version (remove 'v' prefix)
       CLEAN_VERSION: ${{ format('{0}', github.ref_name) }}
-      BUILD_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.zip
+      # Output file names
+      ZIP_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.zip
+      CRX_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.crx
 
     steps:
       # 1. Checkout code with full history
@@ -20,18 +22,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Create zip file
+      # 2. Setup Node.js (for crx3 tool)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # 3. Install crx3 tool
+      - name: Install crx3
+        run: npm install -g crx3
+
+      # 4. Create ZIP file (exclude .git, .github, README.md and other dotfiles)
       - name: Create Zip Archive
         run: |
           # Remove 'v' prefix from version if present
           CLEAN_VERSION=${CLEAN_VERSION#v}
-          zip -r ${BUILD_OUTPUT} . -x .git/\* .github/\* *.zip
-          if [ ! -f "${BUILD_OUTPUT}" ]; then
-            echo "::error::Failed to create zip file"
+          # Create zip excluding specific files
+          zip -r ${ZIP_OUTPUT} . \
+            -x .git/\* .github/\* *.zip *.crx *.pem README.md .*/\* .DS_Store
+
+      # 5. Create CRX file using the private key from secrets
+      - name: Create CRX Package
+        run: |
+          # Write private key to file
+          echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
+          # Package extension with crx3
+          crx3 pack . -p private-key.pem -o ${CRX_OUTPUT}
+          # Verify CRX was created
+          if [ ! -f "${CRX_OUTPUT}" ]; then
+            echo "::error::Failed to create CRX file"
             exit 1
           fi
 
-      # 3. Generate changelog (simplified version without API call)
+      # 6. Generate changelog
       - name: Generate Changelog
         id: changelog
         run: |
@@ -39,7 +62,7 @@ jobs:
           git fetch --tags
           TAGS=$(git tag --sort=-v:refname)
           
-          # Find previous release tag (the one before current)
+          # Find previous release tag
           PREV_RELEASE=""
           CURRENT_TAG="${{ github.ref_name }}"
           found_current=false
@@ -60,7 +83,7 @@ jobs:
             --date=format:"%Y-%m-%d" \
             ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }})
           
-          # Properly set environment variables
+          # Set environment variables
           echo "CHANGELOG_TITLE<<EOF" >> $GITHUB_ENV
           echo "$CHANGELOG_TITLE" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
@@ -69,7 +92,7 @@ jobs:
           echo "$CHANGELOG_BODY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # 4. Gather metadata
+      # 7. Gather metadata
       - name: Gather metadata
         id: meta
         run: |
@@ -79,10 +102,11 @@ jobs:
           # Get short commit ID
           echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
           
-          # Get zip file size
-          echo "file_size=$(du -h ${BUILD_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
+          # Get file sizes
+          echo "zip_size=$(du -h ${ZIP_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
+          echo "crx_size=$(du -h ${CRX_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
 
-      # 5. Create formatted GitHub Release
+      # 8. Create GitHub Release with both files
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -96,7 +120,11 @@ jobs:
             - 🕒 Build Time: ${{ steps.meta.outputs.time }} (UTC+8)
             - 🏷️ Tag: ${{ github.ref_name }}
             - 🔗 Commit: [${{ steps.meta.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-            - 📦 File: ${BUILD_OUTPUT} (${{ steps.meta.outputs.file_size }})
-          files: ${BUILD_OUTPUT}
+            - 📦 Files:
+              - ${ZIP_OUTPUT} (${{ steps.meta.outputs.zip_size }})
+              - ${CRX_OUTPUT} (${{ steps.meta.outputs.crx_size }})
+          files: |
+            ${ZIP_OUTPUT}
+            ${CRX_OUTPUT}
           draft: false
           prerelease: false
