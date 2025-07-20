@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vela Docs Copier",
-  "version": "1.0",
+  "version": "1.1",
   "description": "为什么微辣稻壳不能复制成Markdown？！",
   "icons": {
     "16": "icons/logo.png",
