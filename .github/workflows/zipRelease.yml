@@ -41,12 +41,12 @@ jobs:
           PREV_RELEASE=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/ ${{ github.repository }}/releases/latest" | \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
             jq -r '.tag_name // empty')
 
           # 生成 changelog 内容（包含 commit 链接）
           CHANGELOG_TITLE="## 📝 更新日志 ${PREV_RELEASE:-初始版本} → ${{ github.ref_name }}"
-          CHANGELOG_BODY=$(git log --pretty=format:"- **%s** ([%h](https://github.com/ ${{ github.repository }}/commit/%H))%n  贡献者：%an <%ae>%n  提交时间：%ad%n  %b" \
+          CHANGELOG_BODY=$(git log --pretty=format:"- **%s** ([%h](https://github.com/${{ github.repository }}/commit/%H))%n  贡献者：%an <%ae>%n  提交时间：%ad%n  %b" \
             --date=format:"%Y-%m-%d %H:%M:%S" \
             ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
             sed '/^  $/d' | \
@@ -89,7 +89,7 @@ jobs:
             ## 🛠️ 构建信息
             - 🕒 构建时间: ${{ steps.meta.outputs.time }} (UTC+8)
             - 🏷️ 标签: ${{ github.ref_name }}
-            - 🔗 提交: [${{ steps.meta.outputs.short_sha }}](https://github.com/ ${{ github.repository }}/commit/${{ github.sha }})
+            - 🔗 提交: [${{ steps.meta.outputs.short_sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
             - 🔐 签名状态: ${{ steps.meta.outputs.sign_status }}
             - 📦 构建产物: ${{ env.BUILD_OUTPUT }}
           files: ${{ env.BUILD_OUTPUT }}
