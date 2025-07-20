@@ -1,6 +1,6 @@
 // ==================== 精确路径映射函数 ====================
 const getGitHubDocUrl = (path) => {
-  const baseUrl = 'https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/refs/heads/main/docs';
+  const baseUrl = 'https://cdn.jsdelivr.net/gh/CheongSzesuen/VelaDocs@refs/heads/main/docs';
   
   // 处理首页
   if (path === '/vela/quickapp/' || path === '/vela/quickapp') {
@@ -110,7 +110,7 @@ const setupCopyButton = (buttonContainer) => {
         text.textContent = '复制';
         button.disabled = false;
         button.classList.remove('loading');
-      }, 1500);
+      }, 1200);
     }
   });
 };
