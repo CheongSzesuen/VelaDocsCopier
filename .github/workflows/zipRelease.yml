@@ -9,20 +9,18 @@ jobs:
   build-release:
     runs-on: ubuntu-latest
     env:
-      # Clean version (remove 'v' prefix)
       CLEAN_VERSION: ${{ format('{0}', github.ref_name) }}
-      # Output file names
       ZIP_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.zip
       CRX_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.crx
 
     steps:
-      # 1. Checkout code with full history
+      # 1. Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Setup Node.js (for crx3 tool)
+      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
@@ -32,89 +30,54 @@ jobs:
       - name: Install crx3
         run: npm install -g crx3
 
-      # 4. Debug: Show directory structure
+      # 4. Debug directory structure
       - name: Debug Directory Structure
         run: |
-          echo "Current workspace: $GITHUB_WORKSPACE"
+          echo "Workspace: $GITHUB_WORKSPACE"
           echo "Directory contents:"
           ls -la
-          echo "src directory contents:"
-          ls -la src/
-          echo "icons directory contents:"
-          ls -la icons/
-          echo "manifest.json content:"
+          echo "Manifest content:"
           cat manifest.json
+          echo "File paths:"
+          find . -type f
 
-      # 5. Verify files exist before packaging
+      # 5. Verify files
       - name: Verify Required Files
         run: |
-          if [ ! -f "manifest.json" ]; then
-            echo "::error::manifest.json is missing!"
-            ls -la
-            exit 1
-          fi
-          if [ ! -f "src/content.js" ]; then
-            echo "::error::src/content.js is missing!"
-            ls -la src/
-            exit 1
-          fi
-          if [ ! -f "src/content.css" ]; then
-            echo "::error::src/content.css is missing!"
-            ls -la src/
-            exit 1
-          fi
-          if [ ! -f "icons/icon-16.png" ]; then
-            echo "::error::icons/icon-16.png is missing!"
-            ls -la icons/
-            exit 1
-          fi
-          if [ ! -f "icons/icon-32.png" ]; then
-            echo "::error::icons/icon-32.png is missing!"
-            ls -la icons/
-            exit 1
-          fi
-          if [ ! -f "icons/icon-48.png" ]; then
-            echo "::error::icons/icon-48.png is missing!"
-            ls -la icons/
-            exit 1
-          fi
-          if [ ! -f "icons/icon-128.png" ]; then
-            echo "::error::icons/icon-128.png is missing!"
-            ls -la icons/
-            exit 1
-          fi
+          [ -f "manifest.json" ] || (echo "::error::manifest.json missing!" && exit 1)
+          [ -f "src/content.js" ] || (echo "::error::src/content.js missing!" && exit 1)
+          [ -f "src/content.css" ] || (echo "::error::src/content.css missing!" && exit 1)
+          [ -f "icons/icon-16.png" ] || (echo "::error::icons/icon-16.png missing!" && exit 1)
+          [ -f "icons/icon-32.png" ] || (echo "::error::icons/icon-32.png missing!" && exit 1)
+          [ -f "icons/icon-48.png" ] || (echo "::error::icons/icon-48.png missing!" && exit 1)
+          [ -f "icons/icon-128.png" ] || (echo "::error::icons/icon-128.png missing!" && exit 1)
 
-      # 6. Create ZIP file (exclude .git, .github, README.md and other dotfiles)
+      # 6. Create ZIP
       - name: Create Zip Archive
         run: |
-          # Remove 'v' prefix from version if present
-          CLEAN_VERSION=${CLEAN_VERSION#v}
-          # Create zip excluding specific files
           zip -r ${ZIP_OUTPUT} . \
             -x .git/\* .github/\* *.zip *.crx *.pem README.md .*/\* .DS_Store
 
-      # 7. Create CRX file using the private key from secrets
+      # 7. Create CRX - FIXED VERSION
       - name: Create CRX Package
         run: |
-          # Write private key to file
+          # Write private key
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
           
-          # Verify we're in the correct directory
-          echo "Current directory before packaging: $(pwd)"
-          echo "Directory contents before packaging:"
-          ls -la
+          # Create temporary directory and copy only necessary files
+          TEMP_DIR=$(mktemp -d)
+          cp -r manifest.json src icons $TEMP_DIR/
           
-          # Package extension with crx3 using absolute path
-          crx3 pack "$GITHUB_WORKSPACE" \
+          # Package from temporary directory
+          cd $TEMP_DIR
+          crx3 pack . \
             -p private-key.pem \
-            -o ${CRX_OUTPUT} \
+            -o $GITHUB_WORKSPACE/${CRX_OUTPUT} \
             -x .git/\* .github/\* *.zip *.pem README.md .*/\* .DS_Store
           
-          # Verify CRX was created
-          if [ ! -f "${CRX_OUTPUT}" ]; then
-            echo "::error::Failed to create CRX file"
-            echo "Current directory contents after failed packaging:"
-            ls -la
+          # Verify output
+          if [ ! -f "$GITHUB_WORKSPACE/${CRX_OUTPUT}" ]; then
+            echo "::error::CRX creation failed!"
             exit 1
           fi
 
@@ -122,11 +85,9 @@ jobs:
       - name: Generate Changelog
         id: changelog
         run: |
-          # Get all tags sorted by version
           git fetch --tags
           TAGS=$(git tag --sort=-v:refname)
           
-          # Find previous release tag
           PREV_RELEASE=""
           CURRENT_TAG="${{ github.ref_name }}"
           found_current=false
@@ -141,36 +102,26 @@ jobs:
             fi
           done
           
-          # Generate formatted changelog
-          CHANGELOG_TITLE="## 📝 Changelog ${PREV_RELEASE:-Initial Release} → ${{ github.ref_name }}"
-          CHANGELOG_BODY=$(git log --pretty=format:"- %s (by %an on %ad)" \
-            --date=format:"%Y-%m-%d" \
-            ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }})
-          
-          # Set environment variables
           echo "CHANGELOG_TITLE<<EOF" >> $GITHUB_ENV
-          echo "$CHANGELOG_TITLE" >> $GITHUB_ENV
+          echo "## 📝 Changelog ${PREV_RELEASE:-Initial Release} → ${{ github.ref_name }}" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
           
           echo "CHANGELOG_BODY<<EOF" >> $GITHUB_ENV
-          echo "$CHANGELOG_BODY" >> $GITHUB_ENV
+          git log --pretty=format:"- %s (by %an on %ad)" \
+            --date=format:"%Y-%m-%d" \
+            ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       # 9. Gather metadata
       - name: Gather metadata
         id: meta
         run: |
-          # Build time (UTC+8)
           echo "time=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
-          
-          # Get short commit ID
           echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
-          
-          # Get file sizes
           echo "zip_size=$(du -h ${ZIP_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
           echo "crx_size=$(du -h ${CRX_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
 
-      # 10. Create GitHub Release with both files
+      # 10. Create Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
