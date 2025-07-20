@@ -46,14 +46,20 @@ jobs:
 
           # 生成精确格式的日志
           CHANGELOG_TITLE="## 📝 更新日志 ${PREV_RELEASE:-初始版本} → ${{ github.ref_name }}"
-          CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  贡献者：%an <%ae>%n  提交时间：%ad%n  %b" \
+          CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  贡献者：%an%n  提交时间：%ad%n  %b" \
             --date=format:"%Y-%m-%d %H:%M:%S" \
             ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
             sed '/^  $/d' | \
             sed 's/^  $$BUG$$/[BUG]/')
 
-          echo "CHANGELOG_TITLE=${CHANGELOG_TITLE}" >> "$GITHUB_ENV"
-          echo "CHANGELOG_BODY=${CHANGELOG_BODY}" >> "$GITHUB_ENV"
+          # 使用 <<EOF 语法写入多行内容到 GITHUB_OUTPUT
+          echo "CHANGELOG_TITLE<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_TITLE" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "CHANGELOG_BODY<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       # 5. 获取构建元数据
       - name: Gather metadata
@@ -77,8 +83,8 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: 🎉 Release ${{ github.ref_name }}
           body: |
-            ${{ env.CHANGELOG_TITLE }}
-            ${{ env.CHANGELOG_BODY }}
+            ${{ steps.changelog.outputs.CHANGELOG_TITLE }}
+            ${{ steps.changelog.outputs.CHANGELOG_BODY }}
 
             ## 🛠️ 构建信息
             - 🕒 构建时间: ${{ steps.meta.outputs.time }} (UTC+8)
