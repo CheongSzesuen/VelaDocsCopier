@@ -20,17 +20,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. 准备打包目录（排除不需要的文件）
+      # 2. 使用 rsync 准备打包目录（排除不需要的文件）
       - name: Prepare build directory
         run: |
           mkdir -p "$TEMP_DIR"
-          cp -r icons manifest.json src "$TEMP_DIR/"
-
-          # 删除指定文件
-          find "$TEMP_DIR" -type f $ -name ".DS_Store" -o -name "README.md" $ -delete
-
-          # 删除指定目录（如 .git）
-          find "$TEMP_DIR" -type d -name ".git" -exec rm -rf {} +
+          rsync -r --exclude='README.md' --exclude='.DS_Store' --exclude='.git' \
+            icons/ manifest.json src/ "$TEMP_DIR/"
 
       # 3. 打包为 ZIP
       - name: Create ZIP archive
