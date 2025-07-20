@@ -33,7 +33,7 @@ jobs:
           cd "$TEMP_DIR" && zip -r "../${BUILD_OUTPUT}" .
           echo "Built ZIP: ${BUILD_OUTPUT}"
 
-      # 4. 精确匹配的更新日志生成（与原 Action 保持一致）
+      # 4. 精确匹配的更新日志生成（带 commit 链接）
       - name: Generate precise changelog
         id: changelog
         run: |
@@ -44,9 +44,9 @@ jobs:
             "https://api.github.com/repos/ ${{ github.repository }}/releases/latest" | \
             jq -r '.tag_name // empty')
 
-          # 生成精确格式的日志
+          # 生成 changelog 内容（包含 commit 链接）
           CHANGELOG_TITLE="## 📝 更新日志 ${PREV_RELEASE:-初始版本} → ${{ github.ref_name }}"
-          CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  贡献者：%an%n  提交时间：%ad%n  %b" \
+          CHANGELOG_BODY=$(git log --pretty=format:"- **%s** ([%h](https://github.com/ ${{ github.repository }}/commit/%H))%n  贡献者：%an <%ae>%n  提交时间：%ad%n  %b" \
             --date=format:"%Y-%m-%d %H:%M:%S" \
             ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
             sed '/^  $/d' | \
