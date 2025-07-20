@@ -1,112 +1,92 @@
-name: Build and Release Extension
+name: Build ZIP on Tag Release
+
 on:
   push:
     tags:
       - 'v*'
+
 jobs:
-  build-release:
+  build-zip:
     runs-on: ubuntu-latest
     env:
-      CLEAN_VERSION: ${{ format('{0}', github.ref_name) }}
-      ZIP_OUTPUT: VelaDocsCopier-${{ format('{0}', github.ref_name) }}.zip
-      CRX_OUTPUT: VelaDocsCopier-${{ format('{0}', github.ref_name) }}.crx
+      BUILD_OUTPUT: VelaDocsCopier-${{ format('{0}', github.ref_name) }}.zip
+      VERSION: ${{ format('{0}', github.ref_name) }}
+      TEMP_DIR: ${{ github.workspace }}/.temp_build
+
     steps:
-      # 1. Checkout code
+      # 1. 代码检出（保留完整git历史）
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Install crx3 tool and required tools
-      - name: Install crx3 and dependencies
+      # 2. 准备打包目录（排除不需要的文件）
+      - name: Prepare build directory
         run: |
-          echo "=== Installing Minimal Requirements ==="
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            nodejs zip unzip openssl xxd file
+          mkdir -p $TEMP_DIR
+          cp -r icons manifest.json src $TEMP_DIR/
+          find $TEMP_DIR -type f $ -name ".DS_Store" -o -name "README.md" $ -delete
+          find $TEMP_DIR -type d -name ".git" -exec rm -rf {} \;
 
-          echo "Installing npm..."
-          sudo apt-get install -y npm
-
-          echo "Installing crx3..."
-          sudo npm install -g crx3 --no-package-lock --no-fund --no-audit
-
-          echo "=== Installed Versions ==="
-          node -v
-          npm -v
-          crx3 --version
-
-      # 3. Validate files
-      - name: Validate Files
+      # 3. 打包为 ZIP
+      - name: Create ZIP archive
         run: |
-          echo "=== Validating Files ==="
-          [ -f "manifest.json" ] || { echo "::error::manifest.json missing"; exit 1; }
-          [ -f "src/content.js" ] || { echo "::error::src/content.js missing"; exit 1; }
-          [ -f "src/content.css" ] || { echo "::error::src/content.css missing"; exit 1; }
-          [ -f "icons/icon-16.png" ] || { echo "::error::icon-16.png missing"; exit 1; }
-          [ -f "icons/icon-32.png" ] || { echo "::error::icon-32.png missing"; exit 1; }
-          [ -f "icons/icon-48.png" ] || { echo "::error::icon-48.png missing"; exit 1; }
-          [ -f "icons/icon-128.png" ] || { echo "::error::icon-128.png missing"; exit 1; }
-          echo "✓ All required files present"
+          cd $TEMP_DIR && zip -r ../${BUILD_OUTPUT} .
+          echo "Built ZIP: ${BUILD_OUTPUT}"
 
-      # 4. Create ZIP
-      - name: Create Zip
+      # 4. 精确匹配的更新日志生成（与原 Action 保持一致）
+      - name: Generate precise changelog
+        id: changelog
         run: |
-          echo "=== Creating ZIP ==="
-          zip -r "${ZIP_OUTPUT}" . \
-            -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
-          echo "✓ ZIP created: ${ZIP_OUTPUT}"
-          echo "Size: $(du -h "${ZIP_OUTPUT}" | cut -f1)"
+          # 获取上一个release的tag
+          PREV_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/ ${{ github.repository }}/releases/latest | \
+            jq -r '.tag_name // empty')
+          
+          # 生成精确格式的日志（直接输出到环境文件）
+          CHANGELOG_TITLE="## 📝 更新日志 ${PREV_RELEASE:-初始版本} → ${{ github.ref_name }}"
+          CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  贡献者：%an <%ae>%n  提交时间：%ad%n  %b" \
+            --date=format:"%Y-%m-%d %H:%M:%S" \
+            ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
+            sed '/^  $/d' | \
+            sed 's/^  $$BUG$$/[BUG]/')
+          
+          echo "CHANGELOG_TITLE=${CHANGELOG_TITLE}" >> $GITHUB_ENV
+          echo "CHANGELOG_BODY=${CHANGELOG_BODY}" >> $GITHUB_ENV
 
-      # 5. Create CRX (Manual Method Only)
-      - name: Create CRX
+      # 5. 获取构建元数据
+      - name: Gather metadata
+        id: meta
         run: |
-          echo "=== Creating CRX ==="
-          echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
-          if ! openssl rsa -in private-key.pem -check -noout; then
-            echo "::error::Invalid private key"
-            head -n 3 private-key.pem
-            exit 1
-          fi
-          echo "✓ Valid private key"
+          # 构建时间（UTC+8）
+          echo "time=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+          
+          # 签名状态（此处为插件，不签名）
+          echo "sign_status=无签名需求" >> $GITHUB_OUTPUT
+          
+          # 获取commit短ID
+          echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
 
-          zip -r extension.zip . \
-            -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
-
-          openssl sha1 -binary < extension.zip > extension.sha1
-          openssl rsautl -sign -inkey private-key.pem -in extension.sha1 -out extension.sig
-
-          {
-            echo -n "Cr24"
-            printf "\x03\x00\x00\x00"
-            printf "\x00\x00\x00\x00"
-            printf "\x00\x00\x00\x00"
-            printf "\x00\x00\x00\x00"
-
-            sig_size=$(wc -c < extension.sig)
-            printf "%08x" $sig_size | xxd -r -p
-            cat extension.sig
-
-            zip_size=$(wc -c < extension.zip)
-            printf "%08x" $zip_size | xxd -r -p
-            cat extension.zip
-          } > "${CRX_OUTPUT}"
-
-          echo "✓ CRX created: ${CRX_OUTPUT}"
-          echo "Size: $(du -h "${CRX_OUTPUT}" | cut -f1)"
-
-      # 6. Create Release
-      - name: Create Release
+      # 6. 创建格式化的 GitHub Release
+      - name: Create Formatted Release
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          name: 🎉 Release ${{ github.ref_name }}
           body: |
-            ## Release ${{ github.ref_name }}
-            ### Files
-            - ${ZIP_OUTPUT}
-            - ${CRX_OUTPUT}
-          files: |
-            ${ZIP_OUTPUT}
-            ${CRX_OUTPUT}
+            ${{ env.CHANGELOG_TITLE }}
+            ${{ env.CHANGELOG_BODY }}
+
+            ## 🛠️ 构建信息
+            - 🕒 构建时间: ${{ steps.meta.outputs.time }} (UTC+8)
+            - 🏷️ 标签: ${{ github.ref_name }}
+            - 🔗 提交: [${{ steps.meta.outputs.short_sha }}](https://github.com/ ${{ github.repository }}/commit/${{ github.sha }})
+            - 🔐 签名状态: ${{ steps.meta.outputs.sign_status }}
+            - 📦 构建产物: VelaDocsCopier-${{ steps.build-zip.outputs.version }}.zip
+          files: ${{ env.BUILD_OUTPUT }}
           draft: false
           prerelease: false
