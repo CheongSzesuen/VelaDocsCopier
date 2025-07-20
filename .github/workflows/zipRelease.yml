@@ -20,119 +20,96 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Install ONLY required system tools (skip Node.js setup)
-      - name: Install tools
+      # 2. Install ONLY crx3 tool (no Node.js setup)
+      - name: Install crx3
         run: |
-          echo "Installing system requirements..."
-          sudo apt-get update && sudo apt-get install -y \
-            nodejs npm  # Only install Node.js for crx3
-          sudo npm install -g crx3
-          sudo apt-get install -y \
+          echo "=== Installing Minimal Requirements ==="
+          # Install Node.js from Ubuntu repo (no npm)
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            nodejs 
+          
+          # Install crx3 as global package
+          echo "Installing crx3..."
+          sudo npm install -g crx3@3.2.1 --no-package-lock --no-fund --no-audit
+          
+          # Install other required tools
+          echo "Installing system tools..."
+          sudo apt-get install -y --no-install-recommends \
             zip unzip openssl xxd file
+          
+          echo "=== Installed Versions ==="
+          node -v
+          crx3 --version
 
-      # 3. Debug directory structure
-      - name: Debug Directory Structure
+      # 3. Validate files
+      - name: Validate Files
         run: |
-          echo "=== Workspace Contents ==="
-          pwd
-          ls -la
-          echo "=== Manifest Content ==="
-          cat manifest.json
-          echo "=== File Tree ==="
-          find . -type f
-
-      # 4. Validate extension files
-      - name: Validate Extension Files
-        run: |
-          echo "=== Validating Required Files ==="
+          echo "=== Validating Files ==="
           [ -f "manifest.json" ] || { echo "::error::manifest.json missing"; exit 1; }
           [ -f "src/content.js" ] || { echo "::error::src/content.js missing"; exit 1; }
           [ -f "src/content.css" ] || { echo "::error::src/content.css missing"; exit 1; }
-          [ -f "icons/icon-16.png" ] || { echo "::error::icons/icon-16.png missing"; exit 1; }
-          [ -f "icons/icon-32.png" ] || { echo "::error::icons/icon-32.png missing"; exit 1; }
-          [ -f "icons/icon-48.png" ] || { echo "::error::icons/icon-48.png missing"; exit 1; }
-          [ -f "icons/icon-128.png" ] || { echo "::error::icons/icon-128.png missing"; exit 1; }
+          [ -f "icons/icon-16.png" ] || { echo "::error::icon-16.png missing"; exit 1; }
+          [ -f "icons/icon-32.png" ] || { echo "::error::icon-32.png missing"; exit 1; }
+          [ -f "icons/icon-48.png" ] || { echo "::error::icon-48.png missing"; exit 1; }
+          [ -f "icons/icon-128.png" ] || { echo "::error::icon-128.png missing"; exit 1; }
           echo "✓ All required files present"
 
-      # 5. Create ZIP archive
-      - name: Create Zip Archive
+      # 4. Create ZIP
+      - name: Create Zip
         run: |
-          echo "=== Creating ZIP Archive ==="
-          excluded_items=(
-            ".git/*"
-            ".github/*"
-            "*.zip"
-            "*.crx"
-            "*.pem"
-            "README.md"
-            ".*/*"
-            ".DS_Store"
-          )
-          zip -r "${ZIP_OUTPUT}" . -x "${excluded_items[@]}"
+          echo "=== Creating ZIP ==="
+          zip -r "${ZIP_OUTPUT}" . \
+            -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
           echo "✓ ZIP created: ${ZIP_OUTPUT}"
-          echo "ZIP size: $(du -h "${ZIP_OUTPUT}" | cut -f1)"
+          echo "Size: $(du -h "${ZIP_OUTPUT}" | cut -f1)"
 
-      # 6. Create CRX package - Robust Method
-      - name: Create CRX Package
+      # 5. Create CRX (Manual Method Only)
+      - name: Create CRX
         run: |
-          echo "=== Starting CRX Packaging ==="
+          echo "=== Creating CRX ==="
           
-          # Write private key with validation
+          # Write and validate private key
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
-          if ! openssl rsa -in private-key.pem -check -noout 2>/dev/null; then
-            echo "::error::Invalid private key format"
+          if ! openssl rsa -in private-key.pem -check -noout; then
+            echo "::error::Invalid private key"
             head -n 3 private-key.pem
             exit 1
           fi
           echo "✓ Valid private key"
-
-          # Create clean workspace
-          TEMP_DIR=$(mktemp -d)
-          cp -r manifest.json src icons "$TEMP_DIR"
-          cd "$TEMP_DIR"
-
-          # Method 1: Try standard packaging
-          if crx3 pack . -p "$GITHUB_WORKSPACE/private-key.pem" -o "$GITHUB_WORKSPACE/${CRX_OUTPUT}"; then
-            echo "✓ CRX created with standard method"
-          else
-            echo "Standard method failed, using manual fallback..."
+          
+          # Create extension.zip
+          echo "Creating extension.zip..."
+          zip -r extension.zip . \
+            -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
+          
+          # Generate CRX manually
+          echo "Generating CRX..."
+          openssl sha1 -binary < extension.zip > extension.sha1
+          openssl rsautl -sign -inkey private-key.pem -in extension.sha1 -out extension.sig
+          
+          # Build CRX v3 format
+          {
+            echo -n "Cr24"  # Magic
+            printf "\x03\x00\x00\x00"  # Version
+            printf "\x00\x00\x00\x00"  # Reserved
+            printf "\x00\x00\x00\x00"  # Reserved
+            printf "\x00\x00\x00\x00"  # Reserved
             
-            # Method 2: Manual packaging
-            cd "$GITHUB_WORKSPACE"
-            zip -r extension.zip .
-            openssl sha1 -binary < extension.zip > extension.sha1
-            openssl rsautl -sign -inkey private-key.pem -in extension.sha1 -out extension.sig
+            # Signature
+            sig_size=$(wc -c < extension.sig)
+            printf "%08x" $sig_size | xxd -r -p
+            cat extension.sig
             
-            # Build CRX v3 format
-            {
-              echo -n "Cr24"  # Magic
-              printf "\x03\x00\x00\x00"  # Version
-              printf "\x00\x00\x00\x00"  # Reserved
-              printf "\x00\x00\x00\x00"  # Reserved
-              printf "\x00\x00\x00\x00"  # Reserved
-              
-              # Signature
-              sig_size=$(wc -c < extension.sig)
-              printf "%08x" $sig_size | xxd -r -p
-              cat extension.sig
-              
-              # ZIP content
-              zip_size=$(wc -c < extension.zip)
-              printf "%08x" $zip_size | xxd -r -p
-              cat extension.zip
-            } > "${CRX_OUTPUT}"
-            echo "✓ CRX created with manual method"
-          fi
+            # ZIP content
+            zip_size=$(wc -c < extension.zip)
+            printf "%08x" $zip_size | xxd -r -p
+            cat extension.zip
+          } > "${CRX_OUTPUT}"
+          
+          echo "✓ CRX created: ${CRX_OUTPUT}"
+          echo "Size: $(du -h "${CRX_OUTPUT}" | cut -f1)"
 
-          # Final verification
-          if [ ! -f "${CRX_OUTPUT}" ]; then
-            echo "::error::CRX creation failed"
-            exit 1
-          fi
-          echo "✓ Final CRX file:"
-          ls -la "${CRX_OUTPUT}"
-
-      # 7. Create Release
+      # 6. Create Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
