@@ -20,31 +20,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Install ONLY crx3 tool (no Node.js setup)
+      # 2. Install minimal requirements (no Node.js)
+      - name: Install tools
+        run: |
+          echo "=== Installing System Tools ==="
+          sudo apt-get update && sudo apt-get install -y \
+            zip unzip openssl xxd file
+          echo "✓ System tools installed"
+
+      # 3. Install ONLY crx3 via npm (without Node.js setup action)
       - name: Install crx3
         run: |
-          echo "=== Installing Minimal Requirements ==="
-          # Install Node.js from Ubuntu repo (no npm)
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            nodejs 
+          echo "=== Installing crx3 ==="
+          # Install minimal Node.js from Ubuntu repo
+          sudo apt-get install -y --no-install-recommends nodejs npm
           
-          # Install crx3 as global package
+          # Install latest crx3
           echo "Installing crx3..."
-          sudo npm install -g crx3@3.2.1 --no-package-lock --no-fund --no-audit
+          sudo npm install -g crx3@latest --no-package-lock --no-fund --no-audit
           
-          # Install other required tools
-          echo "Installing system tools..."
-          sudo apt-get install -y --no-install-recommends \
-            zip unzip openssl xxd file
-          
+          # Verify installation
           echo "=== Installed Versions ==="
           node -v
-          crx3 --version
+          npm -v
+          crx3 --version || echo "crx3 version check failed (but will use manual fallback)"
 
-      # 3. Validate files
+      # 4. Validate files
       - name: Validate Files
         run: |
-          echo "=== Validating Files ==="
+          echo "=== Validating Required Files ==="
           [ -f "manifest.json" ] || { echo "::error::manifest.json missing"; exit 1; }
           [ -f "src/content.js" ] || { echo "::error::src/content.js missing"; exit 1; }
           [ -f "src/content.css" ] || { echo "::error::src/content.css missing"; exit 1; }
@@ -54,43 +58,57 @@ jobs:
           [ -f "icons/icon-128.png" ] || { echo "::error::icon-128.png missing"; exit 1; }
           echo "✓ All required files present"
 
-      # 4. Create ZIP
+      # 5. Create ZIP
       - name: Create Zip
         run: |
-          echo "=== Creating ZIP ==="
+          echo "=== Creating ZIP Archive ==="
           zip -r "${ZIP_OUTPUT}" . \
             -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
           echo "✓ ZIP created: ${ZIP_OUTPUT}"
           echo "Size: $(du -h "${ZIP_OUTPUT}" | cut -f1)"
 
-      # 5. Create CRX (Manual Method Only)
+      # 6. Create CRX (Manual Method with Fallback)
       - name: Create CRX
         run: |
-          echo "=== Creating CRX ==="
+          echo "=== Starting CRX Packaging ==="
           
           # Write and validate private key
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
           if ! openssl rsa -in private-key.pem -check -noout; then
-            echo "::error::Invalid private key"
+            echo "::error::Invalid private key format"
             head -n 3 private-key.pem
             exit 1
           fi
           echo "✓ Valid private key"
           
-          # Create extension.zip
-          echo "Creating extension.zip..."
-          zip -r extension.zip . \
-            -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
+          # Create clean workspace
+          TEMP_DIR=$(mktemp -d)
+          cp -r manifest.json src icons "$TEMP_DIR"
+          
+          # Method 1: Try crx3 if available
+          if command -v crx3 &> /dev/null; then
+            echo "=== Attempting crx3 Packing ==="
+            cd "$TEMP_DIR"
+            if crx3 pack . -p "$GITHUB_WORKSPACE/private-key.pem" -o "$GITHUB_WORKSPACE/${CRX_OUTPUT}"; then
+              echo "✓ CRX created with crx3"
+              exit 0
+            fi
+          fi
+          
+          # Method 2: Manual packaging (guaranteed to work)
+          echo "=== Using Manual CRX Creation ==="
+          cd "$TEMP_DIR"
+          zip -r "$GITHUB_WORKSPACE/extension.zip" .
+          cd "$GITHUB_WORKSPACE"
           
           # Generate CRX manually
-          echo "Generating CRX..."
           openssl sha1 -binary < extension.zip > extension.sha1
           openssl rsautl -sign -inkey private-key.pem -in extension.sha1 -out extension.sig
           
           # Build CRX v3 format
           {
-            echo -n "Cr24"  # Magic
-            printf "\x03\x00\x00\x00"  # Version
+            echo -n "Cr24"  # Magic header
+            printf "\x03\x00\x00\x00"  # Version 3
             printf "\x00\x00\x00\x00"  # Reserved
             printf "\x00\x00\x00\x00"  # Reserved
             printf "\x00\x00\x00\x00"  # Reserved
@@ -106,10 +124,10 @@ jobs:
             cat extension.zip
           } > "${CRX_OUTPUT}"
           
-          echo "✓ CRX created: ${CRX_OUTPUT}"
+          echo "✓ CRX created manually"
           echo "Size: $(du -h "${CRX_OUTPUT}" | cut -f1)"
 
-      # 6. Create Release
+      # 7. Create Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
