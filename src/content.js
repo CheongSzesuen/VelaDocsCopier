@@ -4,7 +4,7 @@
 const getGitHubDocUrl = (path) => {
   const baseUrl = 'https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/refs/heads/main/docs';
   
-  // 处理首页
+  // 处理首页.
   if (path === '/vela/quickapp/' || path === '/vela/quickapp') {
     return `${baseUrl}/index.md`;
   }
