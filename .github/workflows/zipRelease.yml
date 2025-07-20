@@ -32,39 +32,59 @@ jobs:
       - name: Install crx3
         run: npm install -g crx3
 
-      # 4. Verify files exist before packaging
+      # 4. Debug: Show directory structure
+      - name: Debug Directory Structure
+        run: |
+          echo "Current workspace: $GITHUB_WORKSPACE"
+          echo "Directory contents:"
+          ls -la
+          echo "src directory contents:"
+          ls -la src/
+          echo "icons directory contents:"
+          ls -la icons/
+          echo "manifest.json content:"
+          cat manifest.json
+
+      # 5. Verify files exist before packaging
       - name: Verify Required Files
         run: |
           if [ ! -f "manifest.json" ]; then
             echo "::error::manifest.json is missing!"
+            ls -la
             exit 1
           fi
           if [ ! -f "src/content.js" ]; then
             echo "::error::src/content.js is missing!"
+            ls -la src/
             exit 1
           fi
           if [ ! -f "src/content.css" ]; then
             echo "::error::src/content.css is missing!"
+            ls -la src/
             exit 1
           fi
           if [ ! -f "icons/icon-16.png" ]; then
             echo "::error::icons/icon-16.png is missing!"
+            ls -la icons/
             exit 1
           fi
           if [ ! -f "icons/icon-32.png" ]; then
             echo "::error::icons/icon-32.png is missing!"
+            ls -la icons/
             exit 1
           fi
           if [ ! -f "icons/icon-48.png" ]; then
             echo "::error::icons/icon-48.png is missing!"
+            ls -la icons/
             exit 1
           fi
           if [ ! -f "icons/icon-128.png" ]; then
             echo "::error::icons/icon-128.png is missing!"
+            ls -la icons/
             exit 1
           fi
 
-      # 5. Create ZIP file (exclude .git, .github, README.md and other dotfiles)
+      # 6. Create ZIP file (exclude .git, .github, README.md and other dotfiles)
       - name: Create Zip Archive
         run: |
           # Remove 'v' prefix from version if present
@@ -73,23 +93,32 @@ jobs:
           zip -r ${ZIP_OUTPUT} . \
             -x .git/\* .github/\* *.zip *.crx *.pem README.md .*/\* .DS_Store
 
-      # 6. Create CRX file using the private key from secrets
+      # 7. Create CRX file using the private key from secrets
       - name: Create CRX Package
         run: |
           # Write private key to file
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
-          # Package extension with crx3
-          crx3 pack $GITHUB_WORKSPACE \
+          
+          # Verify we're in the correct directory
+          echo "Current directory before packaging: $(pwd)"
+          echo "Directory contents before packaging:"
+          ls -la
+          
+          # Package extension with crx3 using absolute path
+          crx3 pack "$GITHUB_WORKSPACE" \
             -p private-key.pem \
             -o ${CRX_OUTPUT} \
             -x .git/\* .github/\* *.zip *.pem README.md .*/\* .DS_Store
+          
           # Verify CRX was created
           if [ ! -f "${CRX_OUTPUT}" ]; then
             echo "::error::Failed to create CRX file"
+            echo "Current directory contents after failed packaging:"
+            ls -la
             exit 1
           fi
 
-      # 7. Generate changelog
+      # 8. Generate changelog
       - name: Generate Changelog
         id: changelog
         run: |
@@ -127,7 +156,7 @@ jobs:
           echo "$CHANGELOG_BODY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # 8. Gather metadata
+      # 9. Gather metadata
       - name: Gather metadata
         id: meta
         run: |
@@ -141,7 +170,7 @@ jobs:
           echo "zip_size=$(du -h ${ZIP_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
           echo "crx_size=$(du -h ${CRX_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
 
-      # 9. Create GitHub Release with both files
+      # 10. Create GitHub Release with both files
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
