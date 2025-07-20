@@ -8,8 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CLEAN_VERSION: ${{ format('{0}', github.ref_name) }}
-      ZIP_OUTPUT: VelaDocsCopier-${{ env.CLEAN_VERSION }}.zip
-      CRX_OUTPUT: VelaDocsCopier-${{ env.CLEAN_VERSION }}.crx
+      ZIP_OUTPUT: VelaDocsCopier-${{ format('{0}', github.ref_name) }}.zip
+      CRX_OUTPUT: VelaDocsCopier-${{ format('{0}', github.ref_name) }}.crx
     steps:
       # 1. Checkout code
       - name: Checkout code
@@ -61,7 +61,6 @@ jobs:
       - name: Create CRX
         run: |
           echo "=== Creating CRX ==="
-          # Write and validate private key
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
           if ! openssl rsa -in private-key.pem -check -noout; then
             echo "::error::Invalid private key"
@@ -70,30 +69,23 @@ jobs:
           fi
           echo "✓ Valid private key"
 
-          # Create extension.zip
-          echo "Creating extension.zip..."
           zip -r extension.zip . \
             -x ".git/*" ".github/*" "*.zip" "*.crx" "*.pem" "README.md" ".*/*" ".DS_Store"
 
-          # Generate CRX manually
-          echo "Generating CRX..."
           openssl sha1 -binary < extension.zip > extension.sha1
           openssl rsautl -sign -inkey private-key.pem -in extension.sha1 -out extension.sig
 
-          # Build CRX v3 format
           {
-            echo -n "Cr24"  # Magic
-            printf "\x03\x00\x00\x00"  # Version
-            printf "\x00\x00\x00\x00"  # Reserved
-            printf "\x00\x00\x00\x00"  # Reserved
-            printf "\x00\x00\x00\x00"  # Reserved
+            echo -n "Cr24"
+            printf "\x03\x00\x00\x00"
+            printf "\x00\x00\x00\x00"
+            printf "\x00\x00\x00\x00"
+            printf "\x00\x00\x00\x00"
 
-            # Signature
             sig_size=$(wc -c < extension.sig)
             printf "%08x" $sig_size | xxd -r -p
             cat extension.sig
 
-            # ZIP content
             zip_size=$(wc -c < extension.zip)
             printf "%08x" $zip_size | xxd -r -p
             cat extension.zip
@@ -102,7 +94,7 @@ jobs:
           echo "✓ CRX created: ${CRX_OUTPUT}"
           echo "Size: $(du -h "${CRX_OUTPUT}" | cut -f1)"
 
-      # 6. Create Release 
+      # 6. Create Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
