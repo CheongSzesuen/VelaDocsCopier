@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Vela Docs Copier(简陋能用版本）",
-  "version": "0.1.0",
-  "description": "为什么微辣稻壳没有复制按钮！",
+  "name": "Vela Docs Copier",
+  "version": "1.0",
+  "description": "为什么微辣稻壳不能复制成Markdown？！",
   "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "16": "icons/logo.png",
+    "32": "icons/logo.png",
+    "48": "icons/logo.png",
+    "128": "icons/logo.png"
   },
   "content_scripts": [
     {
@@ -15,8 +15,8 @@
         "https://iot.mi.com/vela/quickapp/*",
         "https://iot.mi.com/vela/quickapp/zh/*"
       ],
-      "js": ["src/content.js"],
-      "css": ["src/content.css"]
+      "js": ["src/main.js"],
+      "css": ["src/style.css"]
     }
   ],
   "permissions": [
@@ -33,10 +33,12 @@
     }
   ],
   "action": {
-    "default_title": "点击复制当前页文档",
+    "default_title": "Vela Docs Copier",
     "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png"
+      "16": "icons/logo.png",
+      "32": "icons/logo.png",
+      "48": "icons/logo.png",
+      "128": "icons/logo.png"
     }
   },
   "minimum_edge_version": "88.0.0"
