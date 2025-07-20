@@ -23,15 +23,19 @@ jobs:
       # 2. 准备打包目录（排除不需要的文件）
       - name: Prepare build directory
         run: |
-          mkdir -p $TEMP_DIR
-          cp -r icons manifest.json src $TEMP_DIR/
-          find $TEMP_DIR -type f $ -name ".DS_Store" -o -name "README.md" $ -delete
-          find $TEMP_DIR -type d -name ".git" -exec rm -rf {} \;
+          mkdir -p "$TEMP_DIR"
+          cp -r icons manifest.json src "$TEMP_DIR/"
+
+          # 删除指定文件
+          find "$TEMP_DIR" -type f $ -name ".DS_Store" -o -name "README.md" $ -delete
+
+          # 删除指定目录（如 .git）
+          find "$TEMP_DIR" -type d -name ".git" -exec rm -rf {} +
 
       # 3. 打包为 ZIP
       - name: Create ZIP archive
         run: |
-          cd $TEMP_DIR && zip -r ../${BUILD_OUTPUT} .
+          cd "$TEMP_DIR" && zip -r "../${BUILD_OUTPUT}" .
           echo "Built ZIP: ${BUILD_OUTPUT}"
 
       # 4. 精确匹配的更新日志生成（与原 Action 保持一致）
@@ -42,32 +46,32 @@ jobs:
           PREV_RELEASE=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/ ${{ github.repository }}/releases/latest | \
+            "https://api.github.com/repos/ ${{ github.repository }}/releases/latest" | \
             jq -r '.tag_name // empty')
-          
-          # 生成精确格式的日志（直接输出到环境文件）
+
+          # 生成精确格式的日志
           CHANGELOG_TITLE="## 📝 更新日志 ${PREV_RELEASE:-初始版本} → ${{ github.ref_name }}"
           CHANGELOG_BODY=$(git log --pretty=format:"- **%s**%n  贡献者：%an <%ae>%n  提交时间：%ad%n  %b" \
             --date=format:"%Y-%m-%d %H:%M:%S" \
             ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} | \
             sed '/^  $/d' | \
             sed 's/^  $$BUG$$/[BUG]/')
-          
-          echo "CHANGELOG_TITLE=${CHANGELOG_TITLE}" >> $GITHUB_ENV
-          echo "CHANGELOG_BODY=${CHANGELOG_BODY}" >> $GITHUB_ENV
+
+          echo "CHANGELOG_TITLE=${CHANGELOG_TITLE}" >> "$GITHUB_ENV"
+          echo "CHANGELOG_BODY=${CHANGELOG_BODY}" >> "$GITHUB_ENV"
 
       # 5. 获取构建元数据
       - name: Gather metadata
         id: meta
         run: |
           # 构建时间（UTC+8）
-          echo "time=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
-          
+          echo "time=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
+
           # 签名状态（此处为插件，不签名）
-          echo "sign_status=无签名需求" >> $GITHUB_OUTPUT
-          
+          echo "sign_status=无签名需求" >> "$GITHUB_OUTPUT"
+
           # 获取commit短ID
-          echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
+          echo "short_sha=$(git rev-parse --short "${{ github.sha }}")" >> "$GITHUB_OUTPUT"
 
       # 6. 创建格式化的 GitHub Release
       - name: Create Formatted Release
@@ -86,7 +90,7 @@ jobs:
             - 🏷️ 标签: ${{ github.ref_name }}
             - 🔗 提交: [${{ steps.meta.outputs.short_sha }}](https://github.com/ ${{ github.repository }}/commit/${{ github.sha }})
             - 🔐 签名状态: ${{ steps.meta.outputs.sign_status }}
-            - 📦 构建产物: VelaDocsCopier-${{ steps.build-zip.outputs.version }}.zip
+            - 📦 构建产物: ${{ env.BUILD_OUTPUT }}
           files: ${{ env.BUILD_OUTPUT }}
           draft: false
           prerelease: false
