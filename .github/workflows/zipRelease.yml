@@ -14,40 +14,35 @@ jobs:
       CRX_OUTPUT: VelaDocsCopier-${CLEAN_VERSION#v}.crx
 
     steps:
-      # 1. Checkout code with full history
+      # 1. Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Setup Node.js environment
+      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      # 3. Install crx3 packaging tool
+      # 3. Install crx3 tool
       - name: Install crx3
         run: npm install -g crx3
 
-      # 4. Debug: Show complete workspace structure
-      - name: Debug Workspace Structure
+      # 4. Debug directory structure
+      - name: Debug Directory Structure
         run: |
-          echo "=== Workspace Path ==="
-          echo "$GITHUB_WORKSPACE"
-          echo "=== Directory Structure ==="
+          echo "=== Workspace Contents ==="
           ls -la
           echo "=== Manifest Content ==="
           cat manifest.json
-          echo "=== All Files Tree ==="
-          find . -type f -print
-          echo "=== File Permissions ==="
-          ls -la manifest.json src/content.js src/content.css icons/
+          echo "=== File Tree ==="
+          find . -type f
 
-      # 5. Validate all required files
-      - name: Validate Required Files
+      # 5. Verify files
+      - name: Verify Required Files
         run: |
-          echo "=== Validating Required Files ==="
           required_files=(
             "manifest.json"
             "src/content.js"
@@ -60,87 +55,50 @@ jobs:
           
           for file in "${required_files[@]}"; do
             if [ ! -f "$file" ]; then
-              echo "::error::Missing required file: $file"
-              echo "Current directory: $(pwd)"
+              echo "::error::Missing file: $file"
               ls -la $(dirname "$file")
               exit 1
-            else
-              echo "✓ $file exists"
             fi
           done
 
-      # 6. Create ZIP archive
+      # 6. Create ZIP
       - name: Create Zip Archive
         run: |
-          echo "=== Creating ZIP Archive ==="
-          CLEAN_VERSION=${CLEAN_VERSION#v}
-          excluded_items=(
-            ".git/*"
-            ".github/*"
-            "*.zip"
-            "*.crx"
-            "*.pem"
-            "README.md"
-            ".*/*"
-            ".DS_Store"
-          )
-          
-          echo "Excluding: ${excluded_items[@]}"
-          zip -r ${ZIP_OUTPUT} . -x "${excluded_items[@]}"
-          
-          echo "=== ZIP Contents ==="
-          unzip -l ${ZIP_OUTPUT} | head -20
+          zip -r ${ZIP_OUTPUT} . \
+            -x .git/\* .github/\* *.zip *.crx *.pem README.md .*/\* .DS_Store
 
-      # 7. Create CRX package (Fixed Solution)
+      # 7. Create CRX - ULTIMATE SOLUTION
       - name: Create CRX Package
         run: |
-          echo "=== Starting CRX Packaging ==="
-          
-          # Write private key to file
+          # Write private key
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
-          echo "Private key written to private-key.pem"
           
-          # Create clean temporary directory
+          # Create clean workspace
           TEMP_DIR=$(mktemp -d)
-          echo "Created temp directory: $TEMP_DIR"
+          cp -r manifest.json src icons $TEMP_DIR/
           
-          # Copy only necessary files
-          echo "Copying required files to temp directory..."
-          cp -v manifest.json "$TEMP_DIR/"
-          cp -rv src "$TEMP_DIR/"
-          cp -rv icons "$TEMP_DIR/"
+          # WORKAROUND: First create a zip file
+          cd $TEMP_DIR
+          zip -r ../extension.zip .
           
-          # Verify files in temp directory
-          echo "=== Temp Directory Contents ==="
-          ls -la "$TEMP_DIR"
-          echo "=== Temp Manifest Content ==="
-          cat "$TEMP_DIR/manifest.json"
-          
-          # Package from temp directory
-          echo "=== Packaging CRX ==="
-          cd "$TEMP_DIR"
-          crx3 pack . \
-            -p private-key.pem \
-            -o "$GITHUB_WORKSPACE/${CRX_OUTPUT}" \
-            -x .git/\* .github/\* *.zip *.pem README.md .*/\* .DS_Store
+          # Then convert to CRX using the zip
+          cd $GITHUB_WORKSPACE
+          crx3 extension.zip -p private-key.pem -o ${CRX_OUTPUT}
           
           # Verify output
-          echo "=== Verifying CRX Output ==="
-          if [ -f "$GITHUB_WORKSPACE/${CRX_OUTPUT}" ]; then
-            echo "✓ CRX file created successfully"
-            ls -la "$GITHUB_WORKSPACE/${CRX_OUTPUT}"
-          else
-            echo "::error::Failed to create CRX file"
-            echo "Current directory: $(pwd)"
+          if [ ! -f "${CRX_OUTPUT}" ]; then
+            echo "::error::CRX creation failed"
             ls -la
             exit 1
           fi
+          
+          echo "=== CRX File Info ==="
+          ls -la ${CRX_OUTPUT}
 
-      # 8. Generate changelog from git history
+      # 8. Generate changelog
       - name: Generate Changelog
         id: changelog
         run: |
-          echo "=== Generating Changelog ==="
           git fetch --tags
           TAGS=$(git tag --sort=-v:refname)
           
@@ -167,33 +125,17 @@ jobs:
             --date=format:"%Y-%m-%d" \
             ${PREV_RELEASE:+$PREV_RELEASE..}${{ github.ref_name }} >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-          
-          echo "=== Changelog Generated ==="
-          echo "$CHANGELOG_TITLE"
-          echo "$CHANGELOG_BODY" | head -10
 
-      # 9. Collect build metadata
-      - name: Gather Metadata
+      # 9. Gather metadata
+      - name: Gather metadata
         id: meta
         run: |
-          echo "=== Gathering Metadata ==="
-          # Build time (UTC+8)
           echo "time=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
-          
-          # Short commit ID
           echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
-          
-          # File sizes
           echo "zip_size=$(du -h ${ZIP_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
           echo "crx_size=$(du -h ${CRX_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
-          
-          echo "Metadata collected:"
-          echo "time: ${{ steps.meta.outputs.time }}"
-          echo "commit: ${{ steps.meta.outputs.short_sha }}"
-          echo "zip_size: ${{ steps.meta.outputs.zip_size }}"
-          echo "crx_size: ${{ steps.meta.outputs.crx_size }}"
 
-      # 10. Create GitHub Release
+      # 10. Create Release
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
