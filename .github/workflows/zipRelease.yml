@@ -32,7 +32,39 @@ jobs:
       - name: Install crx3
         run: npm install -g crx3
 
-      # 4. Create ZIP file (exclude .git, .github, README.md and other dotfiles)
+      # 4. Verify files exist before packaging
+      - name: Verify Required Files
+        run: |
+          if [ ! -f "manifest.json" ]; then
+            echo "::error::manifest.json is missing!"
+            exit 1
+          fi
+          if [ ! -f "src/content.js" ]; then
+            echo "::error::src/content.js is missing!"
+            exit 1
+          fi
+          if [ ! -f "src/content.css" ]; then
+            echo "::error::src/content.css is missing!"
+            exit 1
+          fi
+          if [ ! -f "icons/icon-16.png" ]; then
+            echo "::error::icons/icon-16.png is missing!"
+            exit 1
+          fi
+          if [ ! -f "icons/icon-32.png" ]; then
+            echo "::error::icons/icon-32.png is missing!"
+            exit 1
+          fi
+          if [ ! -f "icons/icon-48.png" ]; then
+            echo "::error::icons/icon-48.png is missing!"
+            exit 1
+          fi
+          if [ ! -f "icons/icon-128.png" ]; then
+            echo "::error::icons/icon-128.png is missing!"
+            exit 1
+          fi
+
+      # 5. Create ZIP file (exclude .git, .github, README.md and other dotfiles)
       - name: Create Zip Archive
         run: |
           # Remove 'v' prefix from version if present
@@ -41,20 +73,23 @@ jobs:
           zip -r ${ZIP_OUTPUT} . \
             -x .git/\* .github/\* *.zip *.crx *.pem README.md .*/\* .DS_Store
 
-      # 5. Create CRX file using the private key from secrets
+      # 6. Create CRX file using the private key from secrets
       - name: Create CRX Package
         run: |
           # Write private key to file
           echo "${{ secrets.PRIVATE_PEM }}" > private-key.pem
           # Package extension with crx3
-          crx3 pack . -p private-key.pem -o ${CRX_OUTPUT}
+          crx3 pack $GITHUB_WORKSPACE \
+            -p private-key.pem \
+            -o ${CRX_OUTPUT} \
+            -x .git/\* .github/\* *.zip *.pem README.md .*/\* .DS_Store
           # Verify CRX was created
           if [ ! -f "${CRX_OUTPUT}" ]; then
             echo "::error::Failed to create CRX file"
             exit 1
           fi
 
-      # 6. Generate changelog
+      # 7. Generate changelog
       - name: Generate Changelog
         id: changelog
         run: |
@@ -92,7 +127,7 @@ jobs:
           echo "$CHANGELOG_BODY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # 7. Gather metadata
+      # 8. Gather metadata
       - name: Gather metadata
         id: meta
         run: |
@@ -106,7 +141,7 @@ jobs:
           echo "zip_size=$(du -h ${ZIP_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
           echo "crx_size=$(du -h ${CRX_OUTPUT} | cut -f1)" >> $GITHUB_OUTPUT
 
-      # 8. Create GitHub Release with both files
+      # 9. Create GitHub Release with both files
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
