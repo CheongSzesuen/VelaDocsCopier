@@ -20,12 +20,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. 使用 rsync 准备打包目录（排除不需要的文件）
+      # 2. 准备打包目录
       - name: Prepare build directory
         run: |
           mkdir -p "$TEMP_DIR"
-          rsync -r --exclude='README.md' --exclude='.DS_Store' --exclude='.git' \
-            icons/ manifest.json src/ "$TEMP_DIR/"
+          cp -R background.js icons manifest.json popup.html src "$TEMP_DIR/"
 
       # 3. 打包为 ZIP
       - name: Create ZIP archive
@@ -33,7 +32,22 @@ jobs:
           cd "$TEMP_DIR" && zip -r "../${BUILD_OUTPUT}" .
           echo "Built ZIP: ${BUILD_OUTPUT}"
 
-      # 4. 精确匹配的更新日志生成（带 commit 链接）
+      # 4. 校验 ZIP 内的路径必须与 manifest.json 保持一致
+      - name: Validate extension package
+        run: |
+          unzip -l "${BUILD_OUTPUT}"
+          unzip -t "${BUILD_OUTPUT}"
+          for required_file in \
+            manifest.json \
+            background.js \
+            icons/logo.png \
+            src/main.js \
+            src/style.css
+          do
+            unzip -l "${BUILD_OUTPUT}" "$required_file" | grep -q "$required_file"
+          done
+
+      # 5. 精确匹配的更新日志生成（带 commit 链接）
       - name: Generate precise changelog
         id: changelog
         run: |
@@ -61,7 +75,7 @@ jobs:
           echo "$CHANGELOG_BODY" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      # 5. 获取构建元数据
+      # 6. 获取构建元数据
       - name: Gather metadata
         id: meta
         run: |
@@ -71,7 +85,7 @@ jobs:
           # 获取commit短ID
           echo "short_sha=$(git rev-parse --short "${{ github.sha }}")" >> "$GITHUB_OUTPUT"
 
-      # 6. 创建格式化的 GitHub Release
+      # 7. 创建格式化的 GitHub Release
       - name: Create Formatted Release
         uses: softprops/action-gh-release@v1
         env:
