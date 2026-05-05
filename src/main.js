@@ -2,9 +2,6 @@ const DOC_BASE_URLS = [
   'https://cdn.jsdelivr.net/gh/CheongSzesuen/VelaDocs@main/docs/zh',
   'https://fastly.jsdelivr.net/gh/CheongSzesuen/VelaDocs@main/docs/zh',
   'https://gcore.jsdelivr.net/gh/CheongSzesuen/VelaDocs@main/docs/zh',
-  'https://ghproxy.com/https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh',
-  'https://gh.api.99988866.xyz/https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh',
-  'https://g.ioiox.com/https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh',
   'https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh'
 ];
 
