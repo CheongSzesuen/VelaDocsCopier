@@ -9,6 +9,7 @@ const COPY_ICON = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect
 const LOADING_ICON = '<path d="M12 2v4M12 18v4M4 12H2M22 12h-2"></path>';
 const SUCCESS_ICON = '<path d="M20 6L9 17l-5-5"></path>';
 const ERROR_ICON = '<path d="M18 6L6 18M6 6l12 12"></path>';
+const SECTION_HEADING_SELECTOR = '.theme-default-content h2[id], .theme-default-content h3[id], .theme-default-content h4[id], .theme-default-content h5[id], .theme-default-content h6[id], main h2[id], main h3[id], main h4[id], main h5[id], main h6[id]';
 
 // ==================== 精确路径映射函数 ====================
 const getDocRelativePath = (path) => {
@@ -94,6 +95,110 @@ const fetchMarkdownContent = async (urls) => {
   }
 };
 
+const stripMarkdownInline = (text) => {
+  return text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_~]/g, '')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+};
+
+const normalizeHeadingText = (text) => {
+  return stripMarkdownInline(text)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+};
+
+const getHeadingText = (heading) => {
+  const clone = heading.cloneNode(true);
+  clone.querySelectorAll('a.header-anchor, .header-anchor, .vela-docs-section-copy-btn').forEach((node) => node.remove());
+  return clone.textContent.trim();
+};
+
+const buildSectionUrl = (heading) => {
+  const url = new URL(window.location.href);
+  url.hash = heading.id;
+  return url.toString();
+};
+
+const getHeadingOccurrenceIndex = (heading) => {
+  const headingText = normalizeHeadingText(getHeadingText(heading));
+  const headings = Array.from(document.querySelectorAll(SECTION_HEADING_SELECTOR));
+  return headings
+    .slice(0, headings.indexOf(heading) + 1)
+    .filter((item) => normalizeHeadingText(getHeadingText(item)) === headingText)
+    .length - 1;
+};
+
+const findMarkdownSection = (content, headingText, occurrenceIndex = 0) => {
+  const targetText = normalizeHeadingText(headingText);
+  const lines = content.split(/\r?\n/);
+  const headingPattern = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+  let startIndex = -1;
+  let startLevel = 0;
+  let matchedCount = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(headingPattern);
+    if (!match) continue;
+
+    const currentText = normalizeHeadingText(match[2]);
+    if (currentText === targetText) {
+      if (matchedCount === occurrenceIndex) {
+        startIndex = index;
+        startLevel = match[1].length;
+        break;
+      }
+      matchedCount += 1;
+    }
+  }
+
+  if (startIndex === -1) {
+    throw new Error(`没有在 Markdown 中找到章节标题：${headingText}`);
+  }
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const match = lines[index].match(headingPattern);
+    if (match && match[1].length <= startLevel) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  return lines.slice(startIndex, endIndex).join('\n').trim();
+};
+
+const copySectionMarkdown = async (heading, button) => {
+  const icon = button.querySelector('.section-copy-icon');
+
+  try {
+    icon.innerHTML = LOADING_ICON;
+    button.disabled = true;
+    button.classList.add('loading');
+
+    const docUrls = getDocUrls(window.location.pathname);
+    const { content, url } = await fetchMarkdownContent(docUrls);
+    const sectionUrl = buildSectionUrl(heading);
+    const sectionContent = findMarkdownSection(content, getHeadingText(heading), getHeadingOccurrenceIndex(heading));
+    await navigator.clipboard.writeText(`<!-- 源地址: ${sectionUrl} -->\n\n${sectionContent}`);
+    console.log('已复制章节来源:', url, sectionUrl);
+
+    icon.innerHTML = SUCCESS_ICON;
+  } catch (error) {
+    console.error('复制章节失败:', error);
+    icon.innerHTML = ERROR_ICON;
+  } finally {
+    setTimeout(() => {
+      icon.innerHTML = COPY_ICON;
+      button.disabled = false;
+      button.classList.remove('loading');
+    }, 1200);
+  }
+};
+
 // ==================== 按钮创建与样式 ====================
 const createCopyButton = () => {
   const button = document.createElement('div');
@@ -106,6 +211,25 @@ const createCopyButton = () => {
       <span class="copy-text">复制本页</span>
     </button>
   `;
+  return button;
+};
+
+const createSectionCopyButton = (heading) => {
+  const button = document.createElement('button');
+  button.className = 'vela-docs-section-copy-btn';
+  button.type = 'button';
+  button.title = '复制本章节';
+  button.setAttribute('aria-label', `复制章节：${getHeadingText(heading)}`);
+  button.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" class="section-copy-icon lucide lucide-copy-icon lucide-copy" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      ${COPY_ICON}
+    </svg>
+  `;
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    copySectionMarkdown(heading, button);
+  });
   return button;
 };
 
@@ -155,13 +279,25 @@ const setupCopyButton = (buttonContainer) => {
 };
 
 // ==================== DOM操作 ====================
-const insertCopyButton = () => {
-  // 检查是否已存在按钮
-  if (document.getElementById('vela-docs-copy-btn')) return;
+const removeNavCopyButton = () => {
+  const navCopyItem = document.querySelector('.nav-item.vela-docs-copy-item');
+  if (navCopyItem) {
+    navCopyItem.remove();
+  }
+};
 
+const insertCopyButton = () => {
   // 尝试在h1标题附近插入按钮
   const h1 = document.querySelector('h1');
   if (h1) {
+    removeNavCopyButton();
+
+    // 标题区已有按钮时无需重复插入
+    if (h1.parentElement?.classList.contains('vela-docs-title-container') &&
+        h1.parentElement.querySelector('#vela-docs-copy-btn')) {
+      return;
+    }
+
     const buttonContainer = createCopyButton();
 
     // 创建flex容器包裹h1和按钮
@@ -177,6 +313,9 @@ const insertCopyButton = () => {
     return;
   }
 
+  // 没有h1时，避免重复插入导航栏按钮
+  if (document.querySelector('.nav-item.vela-docs-copy-item #vela-docs-copy-btn')) return;
+
   // 如果没有h1，回退到导航栏
   const navLinks = document.querySelector('.navbar .nav-links') ||
                  document.querySelector('.navbar .links');
@@ -189,9 +328,18 @@ const insertCopyButton = () => {
   }
 };
 
+const insertSectionCopyButtons = () => {
+  document.querySelectorAll(SECTION_HEADING_SELECTOR).forEach((heading) => {
+    if (heading.querySelector(':scope > .vela-docs-section-copy-btn')) return;
+    heading.classList.add('vela-docs-section-title');
+    heading.appendChild(createSectionCopyButton(heading));
+  });
+};
+
 // ==================== 初始化 ====================
 const init = () => {
   insertCopyButton();
+  insertSectionCopyButtons();
 
   // 监听DOM变化（适用于单页应用）
   const observer = new MutationObserver((mutations) => {
@@ -208,6 +356,7 @@ const init = () => {
 
       if (hasContentChange) {
         insertCopyButton();
+        insertSectionCopyButtons();
       }
     }
   });
@@ -221,7 +370,10 @@ const init = () => {
   });
 
   // 添加路由变化监听（针对单页应用）
-  window.addEventListener('popstate', insertCopyButton);
+  window.addEventListener('popstate', () => {
+    insertCopyButton();
+    insertSectionCopyButtons();
+  });
 };
 
 // 启动
