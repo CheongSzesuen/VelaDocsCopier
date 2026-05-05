@@ -1,7 +1,15 @@
-// ==================== 精确路径映射函数 ====================
-const getGitHubDocUrl = (path) => {
-  const baseUrl = 'https://cdn.jsdelivr.net/gh/CheongSzesuen/VelaDocs@refs/heads/main/docs/zh';
+const DOC_BASE_URLS = [
+  'https://cdn.jsdelivr.net/gh/CheongSzesuen/VelaDocs@main/docs/zh',
+  'https://fastly.jsdelivr.net/gh/CheongSzesuen/VelaDocs@main/docs/zh',
+  'https://gcore.jsdelivr.net/gh/CheongSzesuen/VelaDocs@main/docs/zh',
+  'https://ghproxy.com/https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh',
+  'https://gh.api.99988866.xyz/https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh',
+  'https://g.ioiox.com/https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh',
+  'https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh'
+];
 
+// ==================== 精确路径映射函数 ====================
+const getDocRelativePath = (path) => {
   // 定义需要移除的前缀
   const prefixToRemove = '/vela/quickapp/zh';
 
@@ -12,7 +20,7 @@ const getGitHubDocUrl = (path) => {
 
     // 如果移除前缀后路径为空或仅为根路径 '/', 则映射到 docs/zh/index.md
     if (relativePath === '' || relativePath === '/') {
-      return `${baseUrl}/index.md`;
+      return '/index.md';
     }
 
     // 处理目录路径（以/结尾）
@@ -20,13 +28,13 @@ const getGitHubDocUrl = (path) => {
       relativePath = relativePath.slice(0, -1); // 移除结尾的 /
       // 如果移除后为空，说明原路径是 /vela/quickapp/zh/，已处理过
       // 否则，映射到该目录下的 index.md
-      return `${baseUrl}${relativePath}/index.md`;
+      return `${relativePath}/index.md`;
     }
 
     // 处理 .html 文件
     if (relativePath.endsWith('.html')) {
       relativePath = relativePath.replace(/\.html$/, '.md');
-      return `${baseUrl}${relativePath}`;
+      return relativePath;
     }
 
     // 默认情况：假设是 .md 文件路径，但通常网页路径不会直接是 .md，所以这可能用于处理特殊情况
@@ -34,13 +42,53 @@ const getGitHubDocUrl = (path) => {
     if (!relativePath.endsWith('.md')) {
       relativePath += '.md';
     }
-    return `${baseUrl}${relativePath}`;
+    return relativePath;
   } else {
     // 如果路径不包含预期的前缀，可以处理为根目录或其他逻辑
     // 根据您的需求，这里可以选择返回根 index.md 或抛出错误
     // 当前处理为根目录 index.md
     console.warn(`Path does not start with expected prefix '${prefixToRemove}': ${path}`);
-    return `${baseUrl}/index.md`; // 或者根据实际需求处理
+    return '/index.md'; // 或者根据实际需求处理
+  }
+};
+
+const getDocUrls = (path) => {
+  const relativePath = getDocRelativePath(path);
+  return DOC_BASE_URLS.map((baseUrl) => `${baseUrl}${relativePath}`);
+};
+
+const fetchMarkdownContent = async (urls) => {
+  const fetchFromUrl = async (url) => {
+    try {
+      console.log('尝试访问的URL:', url);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      const content = await response.text();
+
+      if (contentType.includes('text/html') || /^\s*<!doctype html/i.test(content) || /^\s*<html/i.test(content)) {
+        throw new Error('响应内容是 HTML，不是 Markdown');
+      }
+
+      return {
+        content,
+        url
+      };
+    } catch (error) {
+      console.warn('文档源访问失败:', url, error);
+      throw new Error(`${url} -> ${error.message}`);
+    }
+  };
+
+  try {
+    return await Promise.any(urls.map(fetchFromUrl));
+  } catch (error) {
+    const errors = error.errors?.map((item) => item.message) || [error.message];
+    throw new Error(`所有文档源访问失败：${errors.join('；')}`);
   }
 };
 
@@ -75,16 +123,10 @@ const setupCopyButton = (buttonContainer) => {
       button.classList.add('loading');
 
       // 获取并复制文档
-      const docUrl = getGitHubDocUrl(window.location.pathname);
-      console.log('尝试访问的URL:', docUrl); // 调试信息
-      const response = await fetch(docUrl);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const content = await response.text();
+      const docUrls = getDocUrls(window.location.pathname);
+      const { content, url } = await fetchMarkdownContent(docUrls);
       await navigator.clipboard.writeText(content);
+      console.log('已复制文档来源:', url);
 
       // 成功状态
       icon.innerHTML = '<path d="M20 6L9 17l-5-5"></path>';
@@ -97,7 +139,7 @@ const setupCopyButton = (buttonContainer) => {
 
       // 在控制台显示详细信息以便调试
       console.log('当前路径:', window.location.pathname);
-      console.log('尝试访问的URL:', getGitHubDocUrl(window.location.pathname));
+      console.log('尝试访问的URL列表:', getDocUrls(window.location.pathname));
 
     } finally {
       // 1.5秒后恢复

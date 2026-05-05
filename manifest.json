@@ -24,7 +24,13 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/*"
+    "https://cdn.jsdelivr.net/*",
+    "https://fastly.jsdelivr.net/*",
+    "https://gcore.jsdelivr.net/*",
+    "https://ghproxy.com/*",
+    "https://gh.api.99988866.xyz/*",
+    "https://g.ioiox.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "web_accessible_resources": [
     {
