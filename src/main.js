@@ -5,6 +5,11 @@ const DOC_BASE_URLS = [
   'https://raw.githubusercontent.com/CheongSzesuen/VelaDocs/main/docs/zh'
 ];
 
+const COPY_ICON = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>';
+const LOADING_ICON = '<path d="M12 2v4M12 18v4M4 12H2M22 12h-2"></path>';
+const SUCCESS_ICON = '<path d="M20 6L9 17l-5-5"></path>';
+const ERROR_ICON = '<path d="M18 6L6 18M6 6l12 12"></path>';
+
 // ==================== 精确路径映射函数 ====================
 const getDocRelativePath = (path) => {
   // 定义需要移除的前缀
@@ -95,11 +100,10 @@ const createCopyButton = () => {
   button.className = 'vela-docs-copy-btn-container';
   button.innerHTML = `
     <button id="vela-docs-copy-btn" title="把当前页面复制为Markdown">
-      <svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+      <svg xmlns="http://www.w3.org/2000/svg" class="copy-icon lucide lucide-copy-icon lucide-copy" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${COPY_ICON}
       </svg>
-      <span class="copy-text">复制</span>
+      <span class="copy-text">复制本页</span>
     </button>
   `;
   return button;
@@ -114,7 +118,7 @@ const setupCopyButton = (buttonContainer) => {
   button.addEventListener('click', async () => {
     try {
       // 更新按钮状态
-      icon.innerHTML = '<path d="M12 2v4M12 18v4M4 12H2M22 12h-2"></path>';
+      icon.innerHTML = LOADING_ICON;
       text.textContent = '获取中...';
       button.disabled = true;
       button.classList.add('loading');
@@ -126,12 +130,12 @@ const setupCopyButton = (buttonContainer) => {
       console.log('已复制文档来源:', url);
 
       // 成功状态
-      icon.innerHTML = '<path d="M20 6L9 17l-5-5"></path>';
+      icon.innerHTML = SUCCESS_ICON;
       text.textContent = '已复制';
 
     } catch (error) {
       console.error('复制失败:', error);
-      icon.innerHTML = '<path d="M18 6L6 18M6 6l12 12"></path>';
+      icon.innerHTML = ERROR_ICON;
       text.textContent = '失败';
 
       // 在控制台显示详细信息以便调试
@@ -141,8 +145,8 @@ const setupCopyButton = (buttonContainer) => {
     } finally {
       // 1.5秒后恢复
       setTimeout(() => {
-        icon.innerHTML = '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>';
-        text.textContent = '复制';
+        icon.innerHTML = COPY_ICON;
+        text.textContent = '复制本页';
         button.disabled = false;
         button.classList.remove('loading');
       }, 1200);
